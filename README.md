@@ -47,7 +47,19 @@ Once you've cloned this repository you can build *librespot* using `cargo`.
 cargo build --release
 ```
 
-## Usage
+## Cross-compilation Using Docker
+You can use the Dockerfiles in `contrib/`. 
+
+* for ARMv7+, i.e. Raspberry Pi 2+ use `contrib/Dockerfile.Rpi`  
+* for ARMv6, i.e. Raspberry Pi 1 and Raspberry Pi Zero: `contrib/Dockerfile.armv6` 
+
+after compilation copy the binaries from the container to your host with:
+
+```shell
+docker cp <containerid>:/build/arm-unknown-linux-gnueabihf/release/librespot .
+```
+
+# Usage
 A sample program implementing a headless Spotify Connect receiver is provided.
 Once you've built *librespot*, run it using :
 ```shell
@@ -62,18 +74,23 @@ The above command will create a receiver named ```Librespot```, with bitrate set
 
 A full list of runtime options are available [here](https://github.com/librespot-org/librespot/wiki/Options)
 
-## Contact
+## Run inside in a container
+
+Using `runBinaryDockerfile` you can build a container that can run librespot. 
+Note that it relies on a binary built like described above. 
+
+# Contact
 Come and hang out on gitter if you need help or want to offer some.
 https://gitter.im/librespot-org/spotify-connect-resources
 
-## Disclaimer
+# Disclaimer
 Using this code to connect to Spotify's API is probably forbidden by them.
 Use at your own risk.
 
-## License
+# License
 Everything in this repository is licensed under the MIT license.
 
-## Related Projects
+# Related Projects
 This is a non exhaustive list of projects that either use or have modified librespot. If you'd like to include yours, submit a PR.
 
 - [librespot-golang](https://github.com/librespot-org/librespot-golang) - A golang port of librespot.
