@@ -1,0 +1,16 @@
+# This Dockerfile is for running librespot expecting to have a binary already. Use the compile* Dockerfiles to build the binary
+#
+# Run it with:
+# docker run -d --restart unless-stopped $(for DEV in $(find /dev/snd -type c); do echo --device=$DEV:$DEV; done) --net=host --name librespot-rpi librespot-rpi --name {devicename}
+
+FROM resin/rpi-raspbian
+RUN apt-get update && \
+    apt-get install libasound2 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir /librespot
+WORKDIR /librespot
+
+COPY librespot .
+RUN chmod +x librespot
+ENTRYPOINT ["./librespot"]

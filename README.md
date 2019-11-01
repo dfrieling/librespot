@@ -1,8 +1,7 @@
 [![Build Status](https://travis-ci.org/librespot-org/librespot.svg?branch=master)](https://travis-ci.org/librespot-org/librespot)
 [![Gitter chat](https://badges.gitter.im/librespot-org/librespot.png)](https://gitter.im/librespot-org/spotify-connect-resources)
 
-## Request for maintainers
-Activity on librespot as of late has been somewhat limited. I’ve been busy with other projects, and have also bought a Spotify Connect speaker, hence my needs for librespot are diminished. It would be great for this project to live on though, and the many contributions that have been provided over the years clearly show that it’s used by more than a few. Thus, I’m requesting that anyone who would be interested in taking over the maintenance of this project leave a note in [#363](https://github.com/librespot-org/librespot/issues/363). Regular contributors have priority, but all interested parties invited. Also, I will not be the sole individual choosing a new maintainer, anyone who has contributed to librespot is welcome to suggest a new maintainer or offer support for an individual in the previously linked thread. After a few weeks, we’ll hopefully choose a new maintainer :)
+Current maintainer is @awiouy folks.
 
 # librespot
 *librespot* is an open source client library for Spotify. It enables
@@ -31,7 +30,7 @@ If you run into a bug when using librespot, please search the existing issues be
 # Building
 Rust 1.32.0 or later is required to build librespot.
 
-We recently switched to using [Rodio](https://github.com/tomaka/rodio) for audio playback by default, hene for macOS and Windows, you should just be able to clone and build librespot (with the command below). For linux, you will need to run the additional commands below, depending on your distro.
+We recently switched to using [Rodio](https://github.com/tomaka/rodio) for audio playback by default, hence for macOS and Windows, you should just be able to clone and build librespot (with the command below). For linux, you will need to run the additional commands below, depending on your distro.
 
 On debian / ubuntu, the following command will install these dependencies :
 ```shell
@@ -48,7 +47,19 @@ Once you've cloned this repository you can build *librespot* using `cargo`.
 cargo build --release
 ```
 
-## Usage
+## Cross-compilation Using Docker
+You can use the Dockerfiles in `contrib/`. 
+
+* for ARMv7+, i.e. Raspberry Pi 2+ use `contrib/Dockerfile.Rpi`  
+* for ARMv6, i.e. Raspberry Pi 1 and Raspberry Pi Zero: `contrib/Dockerfile.armv6` 
+
+after compilation copy the binaries from the container to your host with:
+
+```shell
+docker cp <containerid>:/build/arm-unknown-linux-gnueabihf/release/librespot .
+```
+
+# Usage
 A sample program implementing a headless Spotify Connect receiver is provided.
 Once you've built *librespot*, run it using :
 ```shell
@@ -63,18 +74,23 @@ The above command will create a receiver named ```Librespot```, with bitrate set
 
 A full list of runtime options are available [here](https://github.com/librespot-org/librespot/wiki/Options)
 
-## Contact
+## Run inside in a container
+
+Using `runBinaryDockerfile` you can build a container that can run librespot. 
+Note that it relies on a binary built like described above. 
+
+# Contact
 Come and hang out on gitter if you need help or want to offer some.
 https://gitter.im/librespot-org/spotify-connect-resources
 
-## Disclaimer
+# Disclaimer
 Using this code to connect to Spotify's API is probably forbidden by them.
 Use at your own risk.
 
-## License
+# License
 Everything in this repository is licensed under the MIT license.
 
-## Related Projects
+# Related Projects
 This is a non exhaustive list of projects that either use or have modified librespot. If you'd like to include yours, submit a PR.
 
 - [librespot-golang](https://github.com/librespot-org/librespot-golang) - A golang port of librespot.
