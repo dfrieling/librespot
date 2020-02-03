@@ -15,16 +15,16 @@ extern crate rand;
 extern crate tokio_core;
 extern crate url;
 
-extern crate sha1;
-extern crate hmac;
 extern crate aes_ctr;
 extern crate block_modes;
+extern crate hmac;
+extern crate sha1;
 
 #[cfg(feature = "with-dns-sd")]
 extern crate dns_sd;
 
 #[cfg(not(feature = "with-dns-sd"))]
-extern crate mdns;
+extern crate libmdns;
 
 extern crate librespot_core;
 extern crate librespot_playback as playback;

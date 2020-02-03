@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 extern crate byteorder;
 extern crate futures;
 extern crate linear_map;
@@ -8,14 +11,15 @@ extern crate librespot_protocol as protocol;
 
 pub mod cover;
 
+use futures::future;
 use futures::Future;
 use linear_map::LinearMap;
 
 use librespot_core::mercury::MercuryError;
 use librespot_core::session::Session;
-use librespot_core::spotify_id::{FileId, SpotifyId};
+use librespot_core::spotify_id::{FileId, SpotifyAudioType, SpotifyId};
 
-pub use protocol::metadata::AudioFile_Format as FileFormat;
+pub use crate::protocol::metadata::AudioFile_Format as FileFormat;
 
 fn countrylist_contains(list: &str, country: &str) -> bool {
     list.chunks(2).any(|cc| cc == country)
@@ -52,14 +56,82 @@ where
         && (!has_allowed || countrylist_contains(allowed.as_str(), country))
 }
 
+// A wrapper with fields the player needs
+#[derive(Debug, Clone)]
+pub struct AudioItem {
+    pub id: SpotifyId,
+    pub uri: String,
+    pub files: LinearMap<FileFormat, FileId>,
+    pub name: String,
+    pub available: bool,
+    pub alternatives: Option<Vec<SpotifyId>>,
+}
+
+impl AudioItem {
+    pub fn get_audio_item(
+        session: &Session,
+        id: SpotifyId,
+    ) -> Box<dyn Future<Item = AudioItem, Error = MercuryError>> {
+        match id.audio_type {
+            SpotifyAudioType::Track => Track::get_audio_item(session, id),
+            SpotifyAudioType::Podcast => Episode::get_audio_item(session, id),
+            SpotifyAudioType::NonPlayable => {
+                Box::new(future::err::<AudioItem, MercuryError>(MercuryError))
+            }
+        }
+    }
+}
+
+trait AudioFiles {
+    fn get_audio_item(
+        session: &Session,
+        id: SpotifyId,
+    ) -> Box<dyn Future<Item = AudioItem, Error = MercuryError>>;
+}
+
+impl AudioFiles for Track {
+    fn get_audio_item(
+        session: &Session,
+        id: SpotifyId,
+    ) -> Box<dyn Future<Item = AudioItem, Error = MercuryError>> {
+        Box::new(Self::get(session, id).and_then(move |item| {
+            Ok(AudioItem {
+                id: id,
+                uri: format!("spotify:track:{}", id.to_base62()),
+                files: item.files,
+                name: item.name,
+                available: item.available,
+                alternatives: Some(item.alternatives),
+            })
+        }))
+    }
+}
+
+impl AudioFiles for Episode {
+    fn get_audio_item(
+        session: &Session,
+        id: SpotifyId,
+    ) -> Box<dyn Future<Item = AudioItem, Error = MercuryError>> {
+        Box::new(Self::get(session, id).and_then(move |item| {
+            Ok(AudioItem {
+                id: id,
+                uri: format!("spotify:episode:{}", id.to_base62()),
+                files: item.files,
+                name: item.name,
+                available: item.available,
+                alternatives: None,
+            })
+        }))
+    }
+}
 pub trait Metadata: Send + Sized + 'static {
     type Message: protobuf::Message;
 
-    fn base_url() -> &'static str;
+    fn request_url(id: SpotifyId) -> String;
     fn parse(msg: &Self::Message, session: &Session) -> Self;
 
-    fn get(session: &Session, id: SpotifyId) -> Box<Future<Item = Self, Error = MercuryError>> {
-        let uri = format!("{}/{}", Self::base_url(), id.to_base16());
+    fn get(session: &Session, id: SpotifyId) -> Box<dyn Future<Item = Self, Error = MercuryError>> {
+        let uri = Self::request_url(id);
         let request = session.mercury().get(uri);
 
         let session = session.clone();
@@ -94,6 +166,37 @@ pub struct Album {
 }
 
 #[derive(Debug, Clone)]
+pub struct Episode {
+    pub id: SpotifyId,
+    pub name: String,
+    pub external_url: String,
+    pub duration: i32,
+    pub language: String,
+    pub show: SpotifyId,
+    pub files: LinearMap<FileFormat, FileId>,
+    pub covers: Vec<FileId>,
+    pub available: bool,
+    pub explicit: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Show {
+    pub id: SpotifyId,
+    pub name: String,
+    pub publisher: String,
+    pub episodes: Vec<SpotifyId>,
+    pub covers: Vec<FileId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Playlist {
+    pub revision: Vec<u8>,
+    pub user: String,
+    pub name: String,
+    pub tracks: Vec<SpotifyId>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Artist {
     pub id: SpotifyId,
     pub name: String,
@@ -103,8 +206,8 @@ pub struct Artist {
 impl Metadata for Track {
     type Message = protocol::metadata::Track;
 
-    fn base_url() -> &'static str {
-        "hm://metadata/3/track"
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://metadata/3/track/{}", id.to_base16())
     }
 
     fn parse(msg: &Self::Message, session: &Session) -> Self {
@@ -148,8 +251,8 @@ impl Metadata for Track {
 impl Metadata for Album {
     type Message = protocol::metadata::Album;
 
-    fn base_url() -> &'static str {
-        "hm://metadata/3/album"
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://metadata/3/album/{}", id.to_base16())
     }
 
     fn parse(msg: &Self::Message, _: &Session) -> Self {
@@ -190,11 +293,47 @@ impl Metadata for Album {
     }
 }
 
+impl Metadata for Playlist {
+    type Message = protocol::playlist4changes::SelectedListContent;
+
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://playlist/v2/playlist/{}", id.to_base62())
+    }
+
+    fn parse(msg: &Self::Message, _: &Session) -> Self {
+        let tracks = msg
+            .get_contents()
+            .get_items()
+            .iter()
+            .map(|item| {
+                let uri_split = item.get_uri().split(":");
+                let uri_parts: Vec<&str> = uri_split.collect();
+                SpotifyId::from_base62(uri_parts[2]).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        if tracks.len() != msg.get_length() as usize {
+            warn!(
+                "Got {} tracks, but the playlist should contain {} tracks.",
+                tracks.len(),
+                msg.get_length()
+            );
+        }
+
+        Playlist {
+            revision: msg.get_revision().to_vec(),
+            name: msg.get_attributes().get_name().to_owned(),
+            tracks: tracks,
+            user: msg.get_owner_username().to_string(),
+        }
+    }
+}
+
 impl Metadata for Artist {
     type Message = protocol::metadata::Artist;
 
-    fn base_url() -> &'static str {
-        "hm://metadata/3/artist"
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://metadata/3/artist/{}", id.to_base16())
     }
 
     fn parse(msg: &Self::Message, session: &Session) -> Self {
@@ -218,6 +357,92 @@ impl Metadata for Artist {
             id: SpotifyId::from_raw(msg.get_gid()).unwrap(),
             name: msg.get_name().to_owned(),
             top_tracks: top_tracks,
+        }
+    }
+}
+
+// Podcast
+impl Metadata for Episode {
+    type Message = protocol::metadata::Episode;
+
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://metadata/3/episode/{}", id.to_base16())
+    }
+
+    fn parse(msg: &Self::Message, session: &Session) -> Self {
+        let country = session.country();
+
+        let files = msg
+            .get_file()
+            .iter()
+            .filter(|file| file.has_file_id())
+            .map(|file| {
+                let mut dst = [0u8; 20];
+                dst.clone_from_slice(file.get_file_id());
+                (file.get_format(), FileId(dst))
+            })
+            .collect();
+
+        let covers = msg
+            .get_covers()
+            .get_image()
+            .iter()
+            .filter(|image| image.has_file_id())
+            .map(|image| {
+                let mut dst = [0u8; 20];
+                dst.clone_from_slice(image.get_file_id());
+                FileId(dst)
+            })
+            .collect::<Vec<_>>();
+
+        Episode {
+            id: SpotifyId::from_raw(msg.get_gid()).unwrap(),
+            name: msg.get_name().to_owned(),
+            external_url: msg.get_external_url().to_owned(),
+            duration: msg.get_duration().to_owned(),
+            language: msg.get_language().to_owned(),
+            show: SpotifyId::from_raw(msg.get_show().get_gid()).unwrap(),
+            covers: covers,
+            files: files,
+            available: parse_restrictions(msg.get_restriction(), &country, "premium"),
+            explicit: msg.get_explicit().to_owned(),
+        }
+    }
+}
+
+impl Metadata for Show {
+    type Message = protocol::metadata::Show;
+
+    fn request_url(id: SpotifyId) -> String {
+        format!("hm://metadata/3/show/{}", id.to_base16())
+    }
+
+    fn parse(msg: &Self::Message, _: &Session) -> Self {
+        let episodes = msg
+            .get_episode()
+            .iter()
+            .filter(|episode| episode.has_gid())
+            .map(|episode| SpotifyId::from_raw(episode.get_gid()).unwrap())
+            .collect::<Vec<_>>();
+
+        let covers = msg
+            .get_covers()
+            .get_image()
+            .iter()
+            .filter(|image| image.has_file_id())
+            .map(|image| {
+                let mut dst = [0u8; 20];
+                dst.clone_from_slice(image.get_file_id());
+                FileId(dst)
+            })
+            .collect::<Vec<_>>();
+
+        Show {
+            id: SpotifyId::from_raw(msg.get_gid()).unwrap(),
+            name: msg.get_name().to_owned(),
+            publisher: msg.get_publisher().to_owned(),
+            episodes: episodes,
+            covers: covers,
         }
     }
 }
